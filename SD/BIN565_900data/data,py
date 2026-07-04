@@ -1,0 +1,64 @@
+import os
+
+FRAME_SIZE = 960
+
+# 165フレーム仕様に調整
+conversion_list = [
+    ("arpeggioAhi_1minBIN565_900.dat", "arpeggioAhi_1minBIN565_165.bin", 165),
+    ("arpeggioAlow_1minBIN565_900.dat", "arpeggioAlow_1minBIN565_165.bin", 165),
+    ("arpeggioBhi_1minBIN565_900.dat", "arpeggioBhi_1minBIN565_165.bin", 165),
+    ("arpeggioBlow_1minBIN565_900.dat", "arpeggioBlow_1minBIN565_165.bin", 165),
+    ("dr_hihat_1minBIN565_900.dat", "dr_hihat_1minBIN565_165.bin", 165),
+    ("dr_snare_1minBIN565_900.dat", "dr_snare_1minBIN565_165.bin", 165),
+    ("dr_kick_1minBIN565_900.dat", "dr_kick_1minBIN565_30.bin", 30),
+    ("lowpulse1_1minBIN565_900.dat", "lowpulse1_1minBIN565_30.bin", 30),
+    ("lowpulse2_1minBIN565_900.dat", "lowpulse2_1minBIN565_30.bin", 30),
+    ("lowpulse3_1minBIN565_900.dat", "lowpulse3_1minBIN565_30.bin", 30),
+    ("lowpulse4_1minBIN565_900.dat", "lowpulse4_1minBIN565_30.bin", 30),
+    ("lowpulse5_1minBIN565_900.dat", "lowpulse5_1minBIN565_30.bin", 30),
+    ("org1_30secBIN565_900.dat", "org1_30secBIN565_165.bin", 165),
+    ("org2_30secBIN565_900.dat", "org2_30secBIN565_165.bin", 165),
+    ("org3_30secBIN565_900.dat", "org3_30secBIN565_165.bin", 165),
+    ("org4_30secBIN565_900.dat", "org4_30secBIN565_165.bin", 165),
+    ("org5_30secBIN565_900.dat", "org5_30secBIN565_165.bin", 165),
+    ("org6_30secBIN565_900.dat", "org6_30secBIN565_165.bin", 165),
+    ("org7_30secBIN565_900.dat", "org7_30secBIN565_165.bin", 165),
+    ("org8_30secBIN565_900.dat", "org8_30secBIN565_165.bin", 165),
+    ("org9_30secBIN565_900.dat", "org9_30secBIN565_165.bin", 165),
+    ("org10_30secBIN565_900.dat", "org10_30secBIN565_165.bin", 165),
+    ("tri1_1minBIN565_900.dat", "tri1_1minBIN565_30.bin", 30),
+    ("tri2_1minBIN565_900.dat", "tri2_1minBIN565_30.bin", 30),
+    ("tri3_1minBIN565_900.dat", "tri3_1minBIN565_30.bin", 30),
+    ("tri4_1minBIN565_900.dat", "tri4_1minBIN565_30.bin", 30),
+    ("tri5_1minBIN565_900.dat", "tri5_1minBIN565_30.bin", 30),
+    ("tri6_1minBIN565_900.dat", "tri6_1minBIN565_30.bin", 30),
+    ("tri7_1minBIN565_900.dat", "tri7_1minBIN565_30.bin", 30),
+    ("tri8_1minBIN565_900.dat", "tri8_1minBIN565_30.bin", 30),
+    ("tri9_1minBIN565_900.dat", "tri9_1minBIN565_30.bin", 30),
+    ("tri10_1minBIN565_900.dat", "tri10_1minBIN565_30.bin", 30),
+    ("tri11_1minBIN565_900.dat", "tri11_1minBIN565_30.bin", 30)
+]
+
+output_dir = "data"
+os.makedirs(output_dir, exist_ok=True)
+
+print("Starting 165-frame truncation...")
+success_count = 0
+
+for input_name, output_name, target_frames in conversion_list:
+    if not os.path.exists(input_name):
+        print(f"⚠️ Warning: {input_name} が見つかりません。")
+        continue
+        
+    target_bytes = target_frames * FRAME_SIZE
+    
+    with open(input_name, "rb") as f_in:
+        data = f_in.read(target_bytes)
+        
+    output_path = os.path.join(output_dir, output_name)
+    with open(output_path, "wb") as f_out:
+        f_out.write(data)
+        
+    success_count += 1
+
+print(f"\nProcessing complete! {success_count} files generated in '{output_dir}'.")
