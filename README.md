@@ -6,6 +6,9 @@ M5Stack Atom Lite、ブラウン管テレビ、コイルピックアップを使
 ブラウン管への映像信号は、M5Stack Atom Lite と M5UnitRCA を使って生成しています。
 本バージョンは**SDカードを一切使用せず、本体の内蔵フラッシュメモリを極限まで活用して動画データを内蔵させた改良版**です。接触不良などの心配がなく、電源を入れて即座に安定した演奏・動作が始まります。
 
+SDカード使用版
+[HowToMakeM5AtomLiteCrtDrum](https://github.com/hide63414/HowToMakeM5AtomLiteCrtDrum)
+
 ## 🛠️ 主な特徴・機能
 
 ### 🎯 演奏・操作の機能
@@ -46,27 +49,27 @@ ATOM Lite本体のボタン1つで、ファイルの切り替えや状態のリ�
 ![表示側材料](images/表示側材料.jpg)
 
 - **制御ユニット**：ATOM Lite
-  - （購入先：[スイッチサイエンス](https://ssci.to)）
+  - （購入先：[スイッチサイエンス](https://www.switch-science.com/products/6262)）
 - **映像出力ユニット**：M5Stack用 RCAコンポジットユニット
-  - （購入先：[スイッチサイエンス](https://ssci.to)）
+  - （購入先：[スイッチサイエンス](https://www.switch-science.com/products/8669)）
 
 
 ### 2. コイルピックアップ（センサー）ユニット
 ![ピックアップ材料](images/ピックアップ材料.jpg)
 
 - **コイル用電線**：AWG24 耐熱ビニル絶縁電線（黒）
-  - （参考：[Amazon | 協和ハーモネット](https://amazon.co.jp)）
+  - （参考：[Amazon | 協和ハーモネット](https://www.amazon.co.jp/dp/B094J4QDDS)）
 - **コイルの芯**：直径3〜3.5cm程度の筒（スプレーボトルの空き容器などを流用）
 - **RCAソケット**：RCA ソケット ケーブル付 DIY用
-  - （参考：[Amazon | RCAソケット](https://amazon.co.jp)）
+  - （参考：[Amazon | RCAソケット](https://www.amazon.co.jp/dp/B0G733YTMM)）
 - **電子部品**：抵抗（100kΩ 〜 1MΩ） ×1
 - **出力用ケーブル**：RCAピンプラグ - φ6.3mm 標準プラグ 変換ケーブル ×1
-  - （参考：[Amazon | F-Factory C-097](https://amazon.co.jp)）
+  - （参考：[Amazon | F-Factory C-097](https://www.amazon.co.jp/dp/B00CLM0BCC)）
 
 ### 3. 周辺機器・その他
 - **ノイズ対策機材**：Rowin ノイズリダクション NOISE GATE LEF-319
   - コイル特有の待機ノイズをカットするために使用します。
-  - （参考：[Amazon | Rowin](https://amazon.co.jp)）
+  - （参考：[Amazon | Rowin](https://www.amazon.co.jp/dp/B07T65ZL54)）
 - **ディスプレイ**：NTSC（RCA）入力対応のブラウン管テレビ ×1
 - **音響機器**：アンプ内蔵スピーカー（またはミキサー＋アンプ環境など） ×1
 
