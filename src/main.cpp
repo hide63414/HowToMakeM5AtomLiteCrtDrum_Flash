@@ -57,7 +57,7 @@ uint8_t buffer[crtFrameSize]; // 1列分の画像データ　rgb565は1データ
 
 int fileNumber = 0;    // 表示ファイル番号　構造体配列の番号
 int frame = 0;         // 表示フレームカウント
-int totalFrames = 0;          // ★追加：現在のファイルの総フレーム数（自動計算用）
+int totalFrames = 0;   // 現在のファイルの総フレーム数（自動計算用）
 uint32_t fpsCount = 0; // fps表示用
 uint32_t fpsSec = 0;   // fps表示用
 
@@ -76,14 +76,34 @@ uint32_t lastFileChangeMillis = 0;
 bool lastBtnAPressed = false;
 bool longPressHandled = false;
 bool waitForBootButtonRelease = false;
-const uint32_t fileChangeRepeatMs = 150;
+const uint32_t fileChangeRepeatMs = 150;  // ファイル切り替えの長押し連続処理の間隔（ms）
 
 bool fileCloseOpen(int fNum);   // 開いているファイルを閉じてfNum番目のファイルを開く
-bool readFrameToBuffer();
+bool readFrameToBuffer();       // LittleFSから1フレーム分のデータを読み込む
 void showFileNumber(int fNum);  // ファイル番号を表示
 void updateScreen();            // スプライトバッファにセットされている画像を表示する
 void updateScreenSlidein();     // ファイルから1画面分データを読み込んで左端からスライドイン　ファイル変更時に使う
 void setAtomLED(uint16_t c);    // 16bitカラー(RGB565)を解析して内蔵LEDを光らせる
+void receiveEvent(int howMany); // I2C受信イベントハンドラ
+void changeFileAndRefreshScreen(int targetFileNumber); // ファイル番号を変更して画面を更新する
+void handleLEDAndFPS();         // 内蔵LEDの点滅とFPS表示を行う
+void handleButtonInput();       // ボタン入力を処理する
+void handleI2CRequest();        // I2C　Controllerからのファイル変更要求を処理する
+
+//I2CTarget動作
+// ベースとなるI2Cアドレス (0x20〜0x2F までの16台分)
+#define BASE_I2C_ADDR 0x20
+#define CMD_FILE_CHANGE 0x30 // 🌟 ファイル変更コマンドを定義
+// アドレス設定に使用する4つのピン
+const int ADDR_PIN_0 = 22; // 1の位 (Bit 0)
+const int ADDR_PIN_1 = 19; // 2の位 (Bit 1)
+const int ADDR_PIN_2 = 23; // 4の位 (Bit 2)
+const int ADDR_PIN_3 = 33; // 8の位 (Bit 3)
+uint8_t myI2cAddress = BASE_I2C_ADDR; // 自身のアドレス格納用
+
+// I2C受信制御用の変数
+volatile bool i2cFileChangeRequested = false;
+volatile int i2cRequestedFileNumber = 0;
 
 void saveCurrentFileSelection() {
   prefs.putInt("fileNumber", fileNumber);
@@ -114,8 +134,29 @@ void setup(void) {
 #endif
 
   M5.begin(cfg);
-
   Serial.begin(115200);
+
+//I2C アドレス設定ピンを内部プルダウンで初期化
+  pinMode(ADDR_PIN_0, INPUT_PULLDOWN); // G19
+  pinMode(ADDR_PIN_1, INPUT_PULLDOWN); // G22
+  pinMode(ADDR_PIN_2, INPUT_PULLDOWN); // G23
+  pinMode(ADDR_PIN_3, INPUT_PULLDOWN); // G33
+  delay(10); 
+
+  // 4ビットのIDを計算 (3.3Vに接続されたピンが 1 (HIGH) になる)
+  int bit0 = digitalRead(ADDR_PIN_0);
+  int bit1 = digitalRead(ADDR_PIN_1);
+  int bit2 = digitalRead(ADDR_PIN_2);
+  int bit3 = digitalRead(ADDR_PIN_3);
+  
+  int idOffset = (bit3 << 3) | (bit2 << 2) | (bit1 << 1) | bit0;
+  
+  // 自身のアドレスを確定 (例: 全て未接続なら 0x20, 全て3.3V接続なら 0x2F)
+  myI2cAddress = BASE_I2C_ADDR + idOffset;
+
+  // 確定したアドレスでI2Cスレーブを起動 (背面ピン G25=SDA, G21=SCL)
+  Wire.begin(myI2cAddress, 25, 21, 400000);
+  Wire.onReceive(receiveEvent);
 
   M5.Display.setFont(&fonts::Font4);
   M5.Display.setColorDepth(16); // 16bitカラー
@@ -169,122 +210,187 @@ void setup(void) {
 // loop(): ボタン入力と長押しファイル切り替えを処理し、
 //          フレーム読み込み・表示・LED更新を繰り返す
 void loop(void) {
-  if (dataFile) {
-    while (dataFile.available()) {
-      M5.update(); // ボタン情報更新
-
-      // 長押しとリリースを判定して保存処理を制御
-      const bool currentBtnAPressed = M5.BtnA.isPressed();
-
-      if (waitForBootButtonRelease) {
-        if (lastBtnAPressed && !currentBtnAPressed) {
-          waitForBootButtonRelease = false;
-          pendingFileSave = false;
-          longPressHandled = false;
-          saveCurrentFileSelection();
-          Serial.println("boot button release confirmed");
-        }
-        lastBtnAPressed = currentBtnAPressed;
-        showFileNumber(fileNumber);
-        delayMicroseconds(500000);
-      } else {
-        if (lastBtnAPressed && !currentBtnAPressed) {
-          // ボタンが離されたとき
-          if (pendingFileSave) {
-            saveCurrentFileSelection();
-            pendingFileSave = false;
-            Serial.printf("[LittleFS] saved fileNumber=%d\n", fileNumber);
-          }
-          longPressHandled = false;
-        }
-        lastBtnAPressed = currentBtnAPressed;
-
-        if (currentBtnAPressed) {
-          const uint32_t now = millis();
-          // 長押しによる連続切り替えの判定
-          const bool shouldRepeat = longPressHandled && (now - lastFileChangeMillis >= fileChangeRepeatMs);
-          
-          if ((M5.BtnA.pressedFor(200) && !longPressHandled) || shouldRepeat) {
-            timerAlarmDisable(timer); // タイマー割り込みを一時停止して処理
-
-            fileNumber++;
-            if (fileNumber > fileNumberMax) {
-              fileNumber = 0;
-            }
-
-            if (!fileCloseOpen(fileNumber)) {
-              Serial.printf("❌ LittleFS file open failed at index: %d\n", fileNumber);
-            }
-            
-            frame = 0; // フレームカウンターを初期化
-
-            // 画面を更新して新しいファイル番号を表示
-            updateScreenSlidein();
-            showFileNumber(fileNumber);
-            
-            pendingFileSave = true;
-            longPressHandled = true;
-            lastFileChangeMillis = now;
-            delayMicroseconds(400000);
-            timerAlarmEnable(timer); // タイマー割り込みを再開
-            
-          } else if (!longPressHandled) { // クリック（短押し）時はファイル番号表示だけ
-            showFileNumber(fileNumber);
-            delayMicroseconds(500000);
-          }
-        }
-
-        // ボタンが離された瞬間に最終的な保存を確定
-        if (!currentBtnAPressed && pendingFileSave) {
-          saveCurrentFileSelection();
-          pendingFileSave = false;
-          longPressHandled = false;
-          Serial.printf("[LittleFS] Final save fileNumber=%d\n", fileNumber);
-        }
-      }
-
-      if (!readFrameToBuffer()) {
-        Serial.println(F("❌ LittleFS read error!"));
-        frame = 0;
-        continue; 
-      }
-
-      // 読み込んだ1列分をスプライトにセット
-      canvas.setBuffer(buffer, 1, crtImageHeight, 16);
-      canvas.setPivot(0, 0);
-      xSemaphoreTake(semaphore, portMAX_DELAY); // タイマー割り込みでセマフォ開放されるのを待つ、解放されたらセマフォ取得
-      updateScreen(); // bufferデータを表示
-
-      int state;
-      portENTER_CRITICAL(&timerMux);
-      state = counter % 3;
-      portEXIT_CRITICAL(&timerMux);
-
-      // 使用している縞模様をすべて見たときに色が異なるラインを選び、
-      // 点滅時にLEDの色を変えるためのサンプル位置
-      const int ledSampleIndexA = 0;
-      const int ledSampleIndexB = 442;
-
-      uint16_t color = 0;
-      if (state == 1) {
-        color = (buffer[ledSampleIndexB] << 8) | buffer[ledSampleIndexB + 1];
-      } else if (state == 2) {
-        color = (buffer[ledSampleIndexA] << 8) | buffer[ledSampleIndexA + 1];
-      }
-      setAtomLED(color);
-
-      // Count Frame rate
-      fpsCount++;
-      if (fpsSec != millis() / 1000) {
-        fpsSec = millis() / 1000;
-        // Serial.printf("fileNum:%d,fps:%d\r\n", fileNumber, fpsCount);
-        fpsCount = 0;
-      }
-    }
-  } else {
+  if (!dataFile) {
     Serial.println(F("error opening dataFile"));
+    delay(1000); // エラー時の過剰なログ出力を防ぐウェイト
+    return;
+  }
+
+  while (dataFile.available()) {
+    // 1. 外部イベント処理（I2Cとボタン）
+    handleI2CRequest();
+    handleButtonInput();
+
+    // 2. ファイル読み込み
+    if (!readFrameToBuffer()) {
+      Serial.println(F("❌ LittleFS read error!"));
+      frame = 0;
+      continue; 
+    }
+
+    // 3. 画面描画
+    canvas.setBuffer(buffer, 1, crtImageHeight, 16);
+    canvas.setPivot(0, 0);
+    
+    // タイマー割り込みからのセマフォ解放を待つ
+    xSemaphoreTake(semaphore, portMAX_DELAY); 
+    updateScreen(); // 画面更新
+
+    // 4. 周辺機能（LED・FPS）の処理
+    handleLEDAndFPS();
   }
 }
+
+// 🌟 1. I2Cからの要求を処理する関数
+void handleI2CRequest() {
+  if (!i2cFileChangeRequested) return;
+
+  timerAlarmDisable(timer); // タイマー割り込みを一時停止
+
+  changeFileAndRefreshScreen(i2cRequestedFileNumber);
+  saveCurrentFileSelection(); 
+  
+  i2cFileChangeRequested = false; 
+  pendingFileSave = false; 
+
+  timerAlarmEnable(timer); // タイマー割り込みを再開
+}
+
+// 🌟 2. ボタン操作を処理する関数
+void handleButtonInput() {
+  M5.update(); // ボタン情報更新
+  const bool currentBtnAPressed = M5.BtnA.isPressed();
+
+  // 起動時ボタンリリースの待機モード
+  if (waitForBootButtonRelease) {
+    if (lastBtnAPressed && !currentBtnAPressed) {
+      waitForBootButtonRelease = false;
+      pendingFileSave = false;
+      longPressHandled = false;
+      saveCurrentFileSelection();
+      Serial.println("boot button release confirmed");
+    }
+    lastBtnAPressed = currentBtnAPressed;
+    showFileNumber(fileNumber);
+    delayMicroseconds(500000);
+    return;
+  }
+
+  // 通常のボタン処理
+  if (lastBtnAPressed && !currentBtnAPressed) { // ボタンが離された瞬間
+    if (pendingFileSave) {
+      saveCurrentFileSelection();
+      pendingFileSave = false;
+      Serial.printf("[LittleFS] saved fileNumber=%d\n", fileNumber);
+    }
+    longPressHandled = false;
+  }
+  lastBtnAPressed = currentBtnAPressed;
+
+  if (currentBtnAPressed) {
+    const uint32_t now = millis();
+    const bool shouldRepeat = longPressHandled && (now - lastFileChangeMillis >= fileChangeRepeatMs);
+    
+    if ((M5.BtnA.pressedFor(200) && !longPressHandled) || shouldRepeat) {
+      timerAlarmDisable(timer); // タイマー割り込みを一時停止
+
+      int nextFileNumber = fileNumber + 1;
+      if (nextFileNumber > fileNumberMax) {
+        nextFileNumber = 0;
+      }
+
+      changeFileAndRefreshScreen(nextFileNumber);
+      
+      pendingFileSave = true;
+      longPressHandled = true;
+      lastFileChangeMillis = now;
+      timerAlarmEnable(timer); // タイマー割り込みを再開
+      
+    } else if (!longPressHandled) { // 短押し（クリック）時
+      showFileNumber(fileNumber);
+      delayMicroseconds(500000);
+    }
+  }
+
+  // ボタンが離された瞬間に最終的な保存を確定
+  if (!currentBtnAPressed && pendingFileSave) {
+    saveCurrentFileSelection();
+    pendingFileSave = false;
+    longPressHandled = false;
+    Serial.printf("[LittleFS] Final save fileNumber=%d\n", fileNumber);
+  }
+}
+
+// 🌟 3. 点滅LEDとFPS計算を処理する関数
+void handleLEDAndFPS() {
+  int state;
+  portENTER_CRITICAL(&timerMux);
+  state = counter % 3;
+  portEXIT_CRITICAL(&timerMux);
+
+  const int ledSampleIndexA = 0;
+  const int ledSampleIndexB = 442;
+
+  uint16_t color = 0;
+  if (state == 1) {
+    color = (buffer[ledSampleIndexB] << 8) | buffer[ledSampleIndexB + 1];
+  } else if (state == 2) {
+    color = (buffer[ledSampleIndexA] << 8) | buffer[ledSampleIndexA + 1];
+  }
+  setAtomLED(color);
+
+  // FPSカウンター
+  fpsCount++;
+  if (fpsSec != millis() / 1000) {
+    fpsSec = millis() / 1000;
+    fpsCount = 0;
+  }
+}
+
+
+// 🌟 ボタンとI2Cで共通するファイル変更＆画面表示処理をまとめた関数
+void changeFileAndRefreshScreen(int targetFileNumber) {
+  fileNumber = targetFileNumber;
+
+  if (!fileCloseOpen(fileNumber)) {
+    Serial.printf("❌ LittleFS file open failed at index: %d\n", fileNumber);
+  } else {
+    Serial.printf("📂 File opened: %d\n", fileNumber);
+  }
+  
+  frame = 0; // フレームカウンターを初期化
+
+  // 画面表示の一連の動作
+  updateScreenSlidein();      // 1. 画像スライドイン
+  showFileNumber(fileNumber); // 2. 変更後の番号表示
+  delayMicroseconds(400000);  // 3. 表示維持のためのウェイト
+}
+
+
+// I2Cデータ受信時のコールバック関数（割り込み処理）
+void receiveEvent(int howMany) {
+  // コマンド(1byte) + ファイル番号(1byte) = 最低2バイト必要
+  if (Wire.available() >= 2) {
+    int cmd = Wire.read(); // 1バイト目：コマンド
+    
+    if (cmd == CMD_FILE_CHANGE) {
+      int receivedNum = Wire.read(); // 2バイト目：ファイル番号
+      
+      // 範囲チェック（必要に応じて上限値 fileNumberMax と比較してください）
+      if (receivedNum >= 0 && receivedNum <= fileNumberMax) {
+        i2cRequestedFileNumber = receivedNum;
+        i2cFileChangeRequested = true; // loop側へ処理を要求
+      }
+    }
+  }
+  
+  // 想定外の余分なバッファが残っている場合は空読みしてクリア
+  while (Wire.available()) { 
+    Wire.read(); 
+  }
+}
+
+
 
 // updateScreen(): 現在のバッファをディスプレイに出力し、フレームインデックスを進める
 void updateScreen() {
